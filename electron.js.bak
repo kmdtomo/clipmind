@@ -1,0 +1,249 @@
+const { app, BrowserWindow, ipcMain, clipboard, screen } = require('electron');
+const path = require('path');
+const url = require('url');
+
+// 開発環境かどうかを判定（ELECTRON_START_URL環境変数の有無で判断）
+const isDev = !!process.env.ELECTRON_START_URL;
+
+// 履歴データを保持する配列
+let clipboardHistory = [];
+const MAX_HISTORY_ITEMS = 20;
+
+// グローバル変数として保持
+let mainWindow = null;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 380,
+    height: 480,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.resolve(__dirname, './dist-electron/preload.js')
+    },
+    frame: false, // フレームなしでモダンな見た目に
+    resizable: false, // サイズ固定
+    transparent: true, // 透明背景を許可（角丸用）
+    hasShadow: true, // シャドウを有効に
+    show: false, // 初期状態では非表示だが、ロード完了後に表示する
+  });
+
+  // 開発モードではlocalhostを読み込む、本番ではdist/index.htmlを読み込む
+  const startUrl = process.env.ELECTRON_START_URL || url.format({
+    pathname: path.join(__dirname, './dist/index.html'),
+    protocol: 'file:',
+    slashes: true
+  });
+  
+  console.log('Loading URL:', startUrl);
+  
+  // ロード完了時の処理
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('Window loaded successfully');
+    if (mainWindow) {
+      mainWindow.webContents.send('update-history', clipboardHistory);
+      
+      // ロード完了後に表示
+      mainWindow.show();
+      mainWindow.focus();
+      
+      // クリップボードの監視を開始
+      startClipboardWatcher();
+    }
+  });
+  
+  // URLをロード
+  mainWindow.loadURL(startUrl);
+  
+  // 開発モードのみDevToolsを開く
+  if (isDev) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' }); // 分離モードでDevToolsを開く
+  }
+
+  // テスト用のデータを追加
+  addTestData();
+
+  // フォーカスが外れたら非表示にする
+  mainWindow.on('blur', () => {
+    mainWindow.hide();
+  });
+
+  return mainWindow;
+}
+
+// ウィンドウの表示・非表示を切り替える
+function toggleWindowVisibility() {
+  if (!mainWindow) return;
+  
+  console.log('Toggle window visibility. Current state:', mainWindow.isVisible());
+  
+  if (mainWindow.isVisible()) {
+    mainWindow.hide();
+  } else {
+    // ウィンドウを確実に画面の中央に表示する
+    const screenSize = screen.getPrimaryDisplay().workAreaSize;
+    const windowSize = mainWindow.getSize();
+    
+    const x = Math.max(0, Math.floor((screenSize.width - windowSize[0]) / 2));
+    const y = Math.max(0, Math.floor((screenSize.height - windowSize[1]) / 2));
+    
+    console.log(`Positioning window at center: (${x}, ${y})`);
+    mainWindow.setPosition(x, y);
+    
+    mainWindow.show();
+    mainWindow.focus();
+    // ウィンドウを表示する際に履歴データを再送信
+    mainWindow.webContents.send('update-history', clipboardHistory);
+  }
+}
+
+// カーソル位置にウィンドウを配置する
+function positionWindowAtCursor() {
+  if (!mainWindow) return;
+  
+  // マウスポインタの位置を取得
+  const mousePos = screen.getCursorScreenPoint();
+  console.log('Mouse position:', mousePos);
+  
+  // ディスプレイサイズの取得
+  const displayBounds = screen.getDisplayNearestPoint(mousePos).workArea;
+  console.log('Display bounds:', displayBounds);
+  
+  // ウィンドウのサイズを取得
+  const windowSize = mainWindow.getSize();
+  const windowWidth = windowSize[0];
+  const windowHeight = windowSize[1];
+  
+  // ウィンドウが画面外にはみ出ないように調整
+  let x = mousePos.x;
+  let y = mousePos.y;
+  
+  // 右側がはみ出る場合は左側に表示
+  if (x + windowWidth > displayBounds.x + displayBounds.width) {
+    x = mousePos.x - windowWidth;
+  }
+  
+  // 下側がはみ出る場合は上側に表示
+  if (y + windowHeight > displayBounds.y + displayBounds.height) {
+    y = mousePos.y - windowHeight;
+  }
+  
+  // ウィンドウの位置を設定
+  console.log(`Positioning window at cursor: (${x}, ${y})`);
+  mainWindow.setPosition(x, y);
+}
+
+// テスト用のデータを追加
+function addTestData() {
+  // テスト用のクリップボードアイテムを追加
+  clipboardHistory = [
+    {
+      id: '1',
+      text: 'テスト1: これはテスト用のクリップボードアイテムです。',
+      timestamp: Date.now() - 60000 * 5
+    },
+    {
+      id: '2',
+      text: 'テスト2: コピー＆ペースト履歴がここに表示されます。',
+      timestamp: Date.now() - 60000 * 4
+    },
+    {
+      id: '3',
+      text: 'テスト3: クリックして再度クリップボードにコピーできます。',
+      timestamp: Date.now() - 60000 * 3
+    }
+  ];
+}
+
+// クリップボードの監視関数
+function startClipboardWatcher() {
+  let lastText = clipboard.readText();
+  
+  // 定期的にクリップボードをチェック（250ミリ秒ごと）
+  setInterval(() => {
+    const newText = clipboard.readText();
+    if (newText && newText !== lastText) {
+      lastText = newText;
+      
+      // 新しいアイテムを履歴に追加
+      const newItem = {
+        id: Date.now().toString(),
+        text: newText,
+        timestamp: Date.now()
+      };
+      
+      // 配列の先頭に追加し、上限を超えないようにする
+      clipboardHistory = [newItem, ...clipboardHistory].slice(0, MAX_HISTORY_ITEMS);
+      
+      // メインウィンドウが存在する場合は常に更新を通知（表示中かどうかに関わらず）
+      if (mainWindow) {
+        mainWindow.webContents.send('update-history', clipboardHistory);
+      }
+    }
+  }, 250);
+}
+
+// カーソル位置の取得要求
+ipcMain.on('show-at-cursor', () => {
+  positionWindowAtCursor();
+  if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
+// IPCイベントハンドラーの設定
+ipcMain.on('get-history', (event) => {
+  event.reply('update-history', clipboardHistory);
+});
+
+ipcMain.on('copy-to-clipboard', (_, item) => {
+  clipboard.writeText(item.text);
+});
+
+ipcMain.on('clear-history', () => {
+  clipboardHistory = [];
+  if (mainWindow) {
+    mainWindow.webContents.send('update-history', clipboardHistory);
+  }
+});
+
+// アプリを終了
+ipcMain.on('close-app', () => {
+  app.quit();
+});
+
+// アプリの準備完了時の処理
+app.whenReady().then(() => {
+  console.log('App is ready');
+  
+  // メインウィンドウを作成
+  const win = createWindow();
+  
+  // グローバルショートカットの登録
+  const { globalShortcut } = require('electron');
+  globalShortcut.register('CommandOrControl+Shift+V', () => {
+    console.log('Shortcut triggered: CommandOrControl+Shift+V');
+    toggleWindowVisibility();
+  });
+  
+  console.log('Global shortcut registered');
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+
+// アプリ終了時にショートカットの登録を解除
+app.on('will-quit', () => {
+  const { globalShortcut } = require('electron');
+  globalShortcut.unregisterAll();
+}); 

@@ -1,0 +1,32 @@
+{
+  "appId": "com.clipmind.app",
+  "productName": "ClipMind",
+  "directories": {
+    "output": "dist"
+  },
+  "files": [
+    "dist-electron",
+    "dist"
+  ],
+  "mac": {
+    "target": [
+      "dmg"
+    ],
+    "category": "public.app-category.utilities"
+  },
+  "win": {
+    "target": [
+      "nsis"
+    ]
+  },
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "category": "Utility"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
