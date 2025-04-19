@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from 'electron';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
-import Store from 'electron-store';
+import ElectronStore from 'electron-store';
 // src/types から ClipboardItem をインポート
 import { ClipboardItem } from '../src/types/ClipboardItem';
 
@@ -21,11 +21,21 @@ interface StoreSchema {
   history: ClipboardItem[]; // インポートした ClipboardItem を使用
 }
 
-const store = new Store<StoreSchema>({
+// Store インスタンスを生成
+const store = new ElectronStore<StoreSchema>({
   defaults: {
     history: []
   }
 });
+
+// 型定義の拡張
+interface TypedElectronStore<T extends Record<string, any>> extends ElectronStore<T> {
+  get<K extends keyof T>(key: K): T[K];
+  set<K extends keyof T>(key: K, value: T[K]): void;
+}
+
+// 型付けされたストアとして使用
+const typedStore = store as TypedElectronStore<StoreSchema>;
 
 // グローバル変数
 let mainWindow: BrowserWindow | null = null;
@@ -245,18 +255,18 @@ function startClipboardWatcher() {
 // 履歴に追加
 function addToHistory(item: ClipboardItem) {
   console.log('Adding item to history:', item.type, item.value?.substring(0, 30) + '...');
-  const history = store.get('history');
+  const history = typedStore.get('history');
   
   // 重複チェックの修正 - 完全一致のみ重複と見なす
   // 重複チェック: type と value が完全に一致する場合に重複とみなす
-  const isDuplicate = history.some(existingItem =>
+  const isDuplicate = history.some((existingItem: ClipboardItem) =>
     existingItem.type === item.type && existingItem.value.trim() === item.value.trim()
   );
   
   if (!isDuplicate) {
     // 新しいアイテムを先頭に追加
     const newHistory = [item, ...history].slice(0, MAX_HISTORY_ITEMS);
-    store.set('history', newHistory);
+    typedStore.set('history', newHistory);
     
     console.log('Added new item to history, total items:', newHistory.length);
     
@@ -307,7 +317,7 @@ function addToHistory(item: ClipboardItem) {
 
 // 履歴をクリア
 function clearHistory() {
-  store.set('history', []);
+  typedStore.set('history', []);
   
   // ポップアップウィンドウが開いている場合は更新
   if (popupWindow && popupWindow.isVisible()) {
@@ -334,7 +344,7 @@ function showPopup() {
   popup.focus();
   
   // 履歴データを送信
-  const history = store.get('history');
+  const history = typedStore.get('history');
   console.log('Sending history data to popup:', history.length, 'items');
   popup.webContents.send('update-history', history);
 }
@@ -389,7 +399,7 @@ app.on('before-quit', () => {
 // IPC通信の設定
 ipcMain.on('get-history', (event) => {
   console.log('IPC: get-history requested');
-  const history = store.get('history');
+  const history = typedStore.get('history');
   console.log('IPC: Sending history data via IPC:', history.length, 'items');
   
   try {
@@ -401,7 +411,7 @@ ipcMain.on('get-history', (event) => {
       try {
         if (!event.sender.isDestroyed()) {
           console.log('IPC: Re-sending update-history after delay');
-          event.reply('update-history', store.get('history'));
+          event.reply('update-history', typedStore.get('history'));
         } else {
           console.log('IPC: Cannot re-send, sender is destroyed');
         }
@@ -441,9 +451,9 @@ ipcMain.on('copy-to-clipboard', (_, item: ClipboardItem) => {
 
 ipcMain.on('delete-item', (event, itemId: string) => { // eventを追加
   console.log('IPC: delete-item', itemId);
-  const history = store.get('history');
-  const newHistory = history.filter((item: ClipboardItem) => item.id !== itemId); // 型アサーションは不要
-  store.set('history', newHistory);
+  const history = typedStore.get('history');
+  const newHistory = history.filter((item: ClipboardItem) => item.id !== itemId);
+  typedStore.set('history', newHistory);
   
   // メインウィンドウとポップアップウィンドウに更新を通知
   if (mainWindow) {
@@ -457,13 +467,13 @@ ipcMain.on('delete-item', (event, itemId: string) => { // eventを追加
 // Rendererから受け取る updatedItem の型もインポートした ClipboardItem を使用
 ipcMain.on('update-item', (event, updatedItem: ClipboardItem) => { // eventを追加
   console.log('IPC: update-item', updatedItem.id);
-  const history = store.get('history');
+  const history = typedStore.get('history');
   // 更新ロジックを修正: updatedItem で完全に置き換えるのではなく、必要なプロパティのみ更新
   // (ここでは主に pinned の更新を想定)
-  const newHistory = history.map((item: ClipboardItem) => // 型アサーションは不要
+  const newHistory = history.map((item: ClipboardItem) =>
     item.id === updatedItem.id ? { ...item, pinned: updatedItem.pinned } : item
   );
-  store.set('history', newHistory);
+  typedStore.set('history', newHistory);
   
   // メインウィンドウとポップアップウィンドウに更新を通知
   if (mainWindow) {
@@ -498,7 +508,7 @@ function sendHistoryToMain() {
     return;
   }
   
-  const history = store.get('history');
+  const history = typedStore.get('history');
   console.log('sendHistoryToMain: Sending history data to main window:', history.length, 'items');
   
   try {
@@ -513,7 +523,7 @@ function sendHistoryToMain() {
         if (mainWindow && !mainWindow.isDestroyed()) {
           console.log(`sendHistoryToMain: Re-sending history data after ${delay}ms delay`);
           try {
-            mainWindow.webContents.send('update-history', store.get('history'));
+            mainWindow.webContents.send('update-history', typedStore.get('history'));
           } catch (error) {
             console.error(`sendHistoryToMain: Error re-sending after ${delay}ms:`, error);
           }

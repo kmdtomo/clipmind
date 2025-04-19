@@ -2,11 +2,12 @@
   "compilerOptions": {
     "composite": true,
     "skipLibCheck": true,
-    "module": "CommonJS", // ESNext から CommonJS に変更
+    "module": "ES2020", // CommonJS から ES2020 に変更
     "moduleResolution": "node", // bundler から node に変更
     "allowSyntheticDefaultImports": true,
     "strict": true
   },
   // include に electron ディレクトリを追加して、main.ts と preload.ts を対象にする
-  "include": ["electron.vite.config.ts", "electron/**/*.ts"]
+  "include": ["electron.vite.config.ts", "electron/**/*.ts", "src/types/**/*.ts"]
 }
+
