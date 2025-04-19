@@ -10197,6 +10197,7 @@ const store = new ElectronStore({
     history: []
   }
 });
+const typedStore = store;
 let mainWindow = null;
 let popupWindow = null;
 let tray = null;
@@ -10372,13 +10373,13 @@ function startClipboardWatcher() {
 function addToHistory(item) {
   var _a;
   console.log("Adding item to history:", item.type, ((_a = item.value) == null ? void 0 : _a.substring(0, 30)) + "...");
-  const history = store.get("history");
+  const history = typedStore.get("history");
   const isDuplicate = history.some(
     (existingItem) => existingItem.type === item.type && existingItem.value.trim() === item.value.trim()
   );
   if (!isDuplicate) {
     const newHistory = [item, ...history].slice(0, MAX_HISTORY_ITEMS);
-    store.set("history", newHistory);
+    typedStore.set("history", newHistory);
     console.log("Added new item to history, total items:", newHistory.length);
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       console.log("Sending update to main window");
@@ -10419,7 +10420,7 @@ function addToHistory(item) {
   }
 }
 function clearHistory() {
-  store.set("history", []);
+  typedStore.set("history", []);
   if (popupWindow && popupWindow.isVisible()) {
     popupWindow.webContents.send("update-history", []);
   }
@@ -10436,7 +10437,7 @@ function showPopup() {
   );
   popup.show();
   popup.focus();
-  const history = store.get("history");
+  const history = typedStore.get("history");
   console.log("Sending history data to popup:", history.length, "items");
   popup.webContents.send("update-history", history);
 }
@@ -10473,7 +10474,7 @@ electron.app.on("before-quit", () => {
 });
 electron.ipcMain.on("get-history", (event) => {
   console.log("IPC: get-history requested");
-  const history = store.get("history");
+  const history = typedStore.get("history");
   console.log("IPC: Sending history data via IPC:", history.length, "items");
   try {
     event.reply("update-history", history);
@@ -10482,7 +10483,7 @@ electron.ipcMain.on("get-history", (event) => {
       try {
         if (!event.sender.isDestroyed()) {
           console.log("IPC: Re-sending update-history after delay");
-          event.reply("update-history", store.get("history"));
+          event.reply("update-history", typedStore.get("history"));
         } else {
           console.log("IPC: Cannot re-send, sender is destroyed");
         }
@@ -10516,9 +10517,9 @@ electron.ipcMain.on("copy-to-clipboard", (_, item) => {
 });
 electron.ipcMain.on("delete-item", (event, itemId) => {
   console.log("IPC: delete-item", itemId);
-  const history = store.get("history");
+  const history = typedStore.get("history");
   const newHistory = history.filter((item) => item.id !== itemId);
-  store.set("history", newHistory);
+  typedStore.set("history", newHistory);
   if (mainWindow) {
     mainWindow.webContents.send("update-history", newHistory);
   }
@@ -10528,14 +10529,11 @@ electron.ipcMain.on("delete-item", (event, itemId) => {
 });
 electron.ipcMain.on("update-item", (event, updatedItem) => {
   console.log("IPC: update-item", updatedItem.id);
-  const history = store.get("history");
+  const history = typedStore.get("history");
   const newHistory = history.map(
-    (item) => (
-      // 型アサーションは不要
-      item.id === updatedItem.id ? { ...item, pinned: updatedItem.pinned } : item
-    )
+    (item) => item.id === updatedItem.id ? { ...item, pinned: updatedItem.pinned } : item
   );
-  store.set("history", newHistory);
+  typedStore.set("history", newHistory);
   if (mainWindow) {
     mainWindow.webContents.send("update-history", newHistory);
   }
@@ -10562,7 +10560,7 @@ function sendHistoryToMain() {
     console.log("sendHistoryToMain: mainWindow is destroyed, cannot send history");
     return;
   }
-  const history = store.get("history");
+  const history = typedStore.get("history");
   console.log("sendHistoryToMain: Sending history data to main window:", history.length, "items");
   try {
     mainWindow.webContents.send("update-history", history);
@@ -10573,7 +10571,7 @@ function sendHistoryToMain() {
         if (mainWindow && !mainWindow.isDestroyed()) {
           console.log(`sendHistoryToMain: Re-sending history data after ${delay}ms delay`);
           try {
-            mainWindow.webContents.send("update-history", store.get("history"));
+            mainWindow.webContents.send("update-history", typedStore.get("history"));
           } catch (error2) {
             console.error(`sendHistoryToMain: Error re-sending after ${delay}ms:`, error2);
           }
